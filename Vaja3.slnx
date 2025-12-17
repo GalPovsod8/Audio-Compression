@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Vaja3.vcxproj" Id="a16dbc33-5801-42e1-b890-eb57a835624a" />
+</Solution>
