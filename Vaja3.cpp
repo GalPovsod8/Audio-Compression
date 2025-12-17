@@ -42,7 +42,23 @@ MidSide splitToMidAndSide(const AudioFile<uint32_t>& audio) {
 }
 
 void compressAudio(const AudioFile<uint32_t>& audio, int compressionFactor, int blockSize) {
+    MidSide ms = splitToMidAndSide(audio);
+    AudioFile<uint32_t> M = ms.mid;
+    AudioFile<uint32_t> S = ms.side;
 
+    //BUILD BLOCKS
+    vector<vector<uint32_t>> blocks(blockSize, vector<uint32_t>(blockSize - 1, 0));
+
+    int half = blockSize / 2;
+    int lastCol = blockSize - 1;
+
+    for (int row = 0; row < half; ++row) {
+        blocks[row][0] = 0;
+    }
+
+    for (int row = blockSize - half; row < blockSize; ++row) {
+        blocks[row][lastCol] = 0;
+    }
 }
 
 void dekompresijaZvoka() {
@@ -76,7 +92,7 @@ int main()
             cin >> blockSize;
             cout << "\n\n";
 
-            compressAudio(audio, compressionFactor, blockSize);
+            compressAudio(audio, compressionFactor, blockSize * 2);
             break;
 
         case 2:
