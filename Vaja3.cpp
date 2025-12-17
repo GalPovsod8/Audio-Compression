@@ -1,24 +1,28 @@
 #include <iostream>
 #include "AudioFile.h"
 #include <map>
+#define _USE_MATH_DEFINES
+#include <cmath>
 
-using namespace std;
-
-// - Izbira vhodne nekompresirane zvoène datoteke tipa WAV.
-// - Faktor stiskanja(parameter M) in velikost bloka(parameter N, npr. 64, 128, itd.).
-// - Shranjevanje kompresiranega zvoka in izvedba dekompresije nad prebranim zvokom.
-// - Predvajanje dekompresiranega zvoka.Alternativno lahko hranite dekompresiran zvok na disk v formatu WAV.
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 struct MidSide {
-    AudioFile<uint32_t> mid;
-    AudioFile<uint32_t> side;
+    AudioFile<double> mid;
+    AudioFile<double> side;
 };
 
-MidSide splitToMidAndSide(const AudioFile<uint32_t>& audio) {
+double w(int n, int N)
+{
+    return std::sin(M_PI / (2.0 * N) * (n + 0.5));
+}
+
+MidSide splitToMidAndSide(const AudioFile<double>& audio) {
     MidSide ms;
 
     if (audio.getNumChannels() != 2) {
-        throw runtime_error("Audio ni stereo!");
+        throw std::runtime_error("Audio ni stereo!");
     }
 
     int numSamplesPerChannel = audio.getNumSamplesPerChannel();
@@ -31,8 +35,8 @@ MidSide splitToMidAndSide(const AudioFile<uint32_t>& audio) {
     ms.side.setSampleRate(audio.getSampleRate());
 
     for (int i = 0; i < numSamplesPerChannel; ++i) {
-        uint32_t L = audio.samples[0][i];
-        uint32_t R = audio.samples[1][i];
+        double L = audio.samples[0][i];
+        double R = audio.samples[1][i];
 
         ms.mid.samples[0][i] = (L + R) / 2;
         ms.side.samples[0][i] = (L - R) / 2;
@@ -41,74 +45,107 @@ MidSide splitToMidAndSide(const AudioFile<uint32_t>& audio) {
     return ms;
 }
 
-void compressAudio(const AudioFile<uint32_t>& audio, int compressionFactor, int blockSize) {
+void buildBlocks(int N, std::vector<std::vector<double>>& blocks) {
+    int blockSize = N;
+    int half = N / 2;
+    int numBlocks = N - 1;
+
+    blocks.resize(numBlocks, std::vector<double>(blockSize));
+
+    int globalValue = 0;
+
+    for (int b = 0; b < numBlocks; ++b) {
+        for (int j = 0; j < blockSize; ++j) {
+            if (b == 0 && j < half) {
+                blocks[b][j] = 0;
+            }
+            else if (b == numBlocks - 1 && j >= half) {
+                blocks[b][j] = 0;
+            }
+            else {
+                blocks[b][j] = ++globalValue;
+            }
+        }
+
+        if (b < numBlocks - 1) {
+            globalValue -= half;
+        }
+    }
+}
+
+void windowFunction(std::vector<std::vector<double>>& blocks) {
+    for (int b = 0; b < blocks.size() - 1; ++b) {
+        for (int j = 0; j < blocks.size(); ++j) {
+            blocks[b][j] *= w(j, blocks[b].size());
+        }
+    }
+}
+
+void MDCT(const std::vector<double>& block) {
+    int N = block.size() / 2;
+}
+
+void compressAudio(const AudioFile<double>& audio, int M, int N) {
     MidSide ms = splitToMidAndSide(audio);
-    AudioFile<uint32_t> M = ms.mid;
-    AudioFile<uint32_t> S = ms.side;
+    AudioFile<double> Mid = ms.mid;
+    AudioFile<double> Side = ms.side;
 
-    //BUILD BLOCKS
-    vector<vector<uint32_t>> blocks(blockSize, vector<uint32_t>(blockSize - 1, 0));
+    std::vector<std::vector<double>> blocks;
+    buildBlocks(N, blocks);
+    windowFunction(blocks);
 
-    int half = blockSize / 2;
-    int lastCol = blockSize - 1;
 
-    for (int row = 0; row < half; ++row) {
-        blocks[row][0] = 0;
-    }
-
-    for (int row = blockSize - half; row < blockSize; ++row) {
-        blocks[row][lastCol] = 0;
-    }
 }
 
 void dekompresijaZvoka() {
-    cout << "Izbrali ste dekompresijo zvoka!";
+    std::cout << "Izbrali ste dekompresijo zvoka!";
 }
 
 void predvajajDekompresiranZvok() {
-    cout << "Izbrali ste predvajanje dekompresiranjega zvoka!";
+    std::cout << "Izbrali ste predvajanje dekompresiranjega zvoka!";
 }
 
 int main()
 {
-    AudioFile<uint32_t> audio;
-    int userChoice = 0, compressionFactor, blockSize;
+    AudioFile<double> audio;
+    int userChoice = 0, M, N; //M = Faktor kompresije    - N = BLOCK SIZE
 
     while (true) {
-        cout << "Izberite nacin:\n\n"
+        std::cout << "Izberite nacin:\n\n"
             << "1 - Kompresija zvoka\n"
             << "2 - Izvedi dekompresijo\n"
             << "3 - Predvajaj dekompresiran zvok\n"
             << "0 - IZHOD\n\n";
 
-        cin >> userChoice;
+        std::cin >> userChoice;
 
         switch (userChoice)
         {
-        case 1:
-            cout << "Izberite faktor stiskanja M:\n";
-            cin >> compressionFactor;
-            cout << "Izberite velikost bloka N:\n";
-            cin >> blockSize;
-            cout << "\n\n";
+        case 1: {
+            std::cout << "Izberite faktor stiskanja M:\n";
+            std::cin >> M;
+            std::cout << "Izberite velikost bloka N:\n";
+            std::cin >> N;
+            std::cout << "\n\n";
 
-            compressAudio(audio, compressionFactor, blockSize * 2);
+            compressAudio(audio, M, N * 2);
+
             break;
-
-        case 2:
+        }
+        case 2: {
             dekompresijaZvoka();
             break;
-
-        case 3:
+        }
+        case 3: {
             predvajajDekompresiranZvok();
             break;
-
-        case 0:
-            cout << "\nIzhod iz programa.\n";
+        }
+        case 0: {
+            std::cout << "\nIzhod iz programa.\n";
             return 0;
-
+        }
         default:
-            cout << "Neveljavna izbira!\n";
+            std::cout << "Neveljavna izbira!\n";
         }
     }
 
