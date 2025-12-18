@@ -128,7 +128,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="BitWriter.cpp" />
     <ClCompile Include="Vaja3.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BitWriter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

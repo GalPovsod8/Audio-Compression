@@ -18,5 +18,13 @@
     <ClCompile Include="Vaja3.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BitWriter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BitWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
