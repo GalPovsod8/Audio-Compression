@@ -4,10 +4,75 @@
 #include <cmath>
 #include <iomanip>
 #include <fstream>
+#include <string>
+#include <chrono>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+std::string openFileDialog(const std::string& title, const std::string& filter) {
+#ifdef _WIN32
+    char filename[MAX_PATH] = { 0 };
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = sizeof(filename);
+    ofn.lpstrFilter = filter.c_str();
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.lpstrTitle = title.c_str();
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileNameA(&ofn) == TRUE) {
+        return std::string(filename);
+    }
+#else
+    std::cout << title << "\nVnesite pot do datoteke: ";
+    std::string path;
+    std::getline(std::cin, path);
+    return path;
+#endif
+    return "";
+}
+
+std::string saveFileDialog(const std::string& title, const std::string& filter, const std::string& defaultExt) {
+#ifdef _WIN32
+    char filename[MAX_PATH] = { 0 };
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = sizeof(filename);
+    ofn.lpstrFilter = filter.c_str();
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.lpstrTitle = title.c_str();
+    ofn.lpstrDefExt = defaultExt.c_str();
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+
+    if (GetSaveFileNameA(&ofn) == TRUE) {
+        return std::string(filename);
+    }
+#else
+    std::cout << title << "\nVnesite pot za shranjevanje: ";
+    std::string path;
+    std::getline(std::cin, path);
+    return path;
+#endif
+    return "";
+}
 
 class BitWriter {
 private:
@@ -43,7 +108,6 @@ public:
         }
     }
 };
-
 
 class BitReader {
 private:
@@ -94,9 +158,10 @@ public:
     }
 };
 
+
 int getBitLength(int value) {
     if (value == 0) return 0;
-    int absValue = abs(value);
+    int absValue = std::abs(value);
     int bits = 0;
     while (absValue > 0) {
         absValue >>= 1;
@@ -116,7 +181,6 @@ uint32_t encodeValue(int value, int bitLength) {
 
 int decodeValue(uint32_t encodedValue, int bitLength) {
     if (bitLength == 0) return 0;
-
     uint32_t signBit = 1u << (bitLength - 1);
     if (encodedValue >= signBit) {
         return static_cast<int>(encodedValue) - (1 << bitLength);
@@ -126,12 +190,14 @@ int decodeValue(uint32_t encodedValue, int bitLength) {
     }
 }
 
-void writeMDCTBlock(BitWriter& writer, const std::vector<int>& mdctCoeffs) {
-    for (int coeff : mdctCoeffs) {
+//////////////////////////////// KOMPRESIJA //////////////////////
+
+void writeMDCTBlock(BitWriter& writer, const std::vector<int>& mdctCoeffs, int M) {
+    int N = mdctCoeffs.size();
+    for (int i = 0; i < (N - M); ++i) {
+        int coeff = mdctCoeffs[i];
         int bitLength = getBitLength(coeff);
-
         writer.writeBits(bitLength, 6);
-
         if (bitLength > 0) {
             uint32_t encodedCoeff = encodeValue(coeff, bitLength);
             writer.writeBits(encodedCoeff, bitLength);
@@ -139,75 +205,11 @@ void writeMDCTBlock(BitWriter& writer, const std::vector<int>& mdctCoeffs) {
     }
 }
 
-void writeCompressedAudio(const std::string& filename,
-    const std::vector<std::vector<int>>& midBlocks,
-    const std::vector<std::vector<int>>& sideBlocks,
-    int numSamples,
-    int N,
-    int sampleRate,
-    int M) {
-
-    std::ofstream outFile(filename, std::ios::binary);
-    if (!outFile) {
-        throw std::runtime_error("Ne morem odpreti datoteke za pisanje!");
-    }
-
-    std::cout << "\n=== ZAPIS V DATOTEKO ===\n";
-
-    uint32_t numSamples32 = static_cast<uint32_t>(numSamples);
-    uint16_t N16 = static_cast<uint16_t>(N);
-    uint32_t sampleRate32 = static_cast<uint32_t>(sampleRate);
-    uint16_t M16 = static_cast<uint16_t>(M);
-
-    outFile.write(reinterpret_cast<const char*>(&numSamples32), sizeof(uint32_t));
-    outFile.write(reinterpret_cast<const char*>(&N16), sizeof(uint16_t));
-    outFile.write(reinterpret_cast<const char*>(&sampleRate32), sizeof(uint32_t));
-    outFile.write(reinterpret_cast<const char*>(&M16), sizeof(uint16_t));
-
-    std::cout << "Glava datoteke:\n";
-    std::cout << "  Stevilo vzorcev: " << numSamples << "\n";
-    std::cout << "  N: " << N << "\n";
-    std::cout << "  Sample rate: " << sampleRate << " Hz\n";
-    std::cout << "  M (faktor stiskanja): " << M << "\n\n";
-
-    BitWriter writer(outFile);
-
-    int totalBlocks = midBlocks.size() + sideBlocks.size();
-    int written = 0;
-
-    std::cout << "Pisanje Mid blokov...\n";
-    for (const auto& block : midBlocks) {
-        writeMDCTBlock(writer, block);
-        written++;
-        if (written % 100 == 0) {
-            std::cout << "\rZapisano: " << written << "/" << totalBlocks << " blokov" << std::flush;
-        }
-    }
-
-    std::cout << "\nPisanje Side blokov...\n";
-    for (const auto& block : sideBlocks) {
-        writeMDCTBlock(writer, block);
-        written++;
-        if (written % 100 == 0) {
-            std::cout << "\rZapisano: " << written << "/" << totalBlocks << " blokov" << std::flush;
-        }
-    }
-
-    writer.flush();
-    outFile.close();
-
-    std::cout << "\n\nZapis zakljucen!\n";
-    std::cout << "Velikost datoteke: " << written << " blokov\n\n";
-}
-
 std::vector<int> readMDCTBlock(BitReader& reader, int N) {
     std::vector<int> mdctCoeffs(N, 0);
-
     for (int i = 0; i < N; ++i) {
         if (!reader.hasMoreData()) break;
-
         int bitLength = reader.readBits(6);
-
         if (bitLength > 0) {
             uint32_t encodedCoeff = reader.readBits(bitLength);
             mdctCoeffs[i] = decodeValue(encodedCoeff, bitLength);
@@ -216,81 +218,8 @@ std::vector<int> readMDCTBlock(BitReader& reader, int N) {
             mdctCoeffs[i] = 0;
         }
     }
-
     return mdctCoeffs;
 }
-
-bool readCompressedAudio(const std::string& filename,
-    std::vector<std::vector<int>>& midBlocks,
-    std::vector<std::vector<int>>& sideBlocks,
-    int& numSamples,
-    int& N,
-    int& sampleRate,
-    int& M) {
-
-    std::ifstream inFile(filename, std::ios::binary);
-    if (!inFile) {
-        std::cerr << "Ne morem odpreti datoteke za branje!\n";
-        return false;
-    }
-
-    std::cout << "\n=== BRANJE IZ DATOTEKE ===\n";
-
-    uint32_t numSamples32;
-    uint16_t N16;
-    uint32_t sampleRate32;
-    uint16_t M16;
-
-    inFile.read(reinterpret_cast<char*>(&numSamples32), sizeof(uint32_t));
-    inFile.read(reinterpret_cast<char*>(&N16), sizeof(uint16_t));
-    inFile.read(reinterpret_cast<char*>(&sampleRate32), sizeof(uint32_t));
-    inFile.read(reinterpret_cast<char*>(&M16), sizeof(uint16_t));
-
-    numSamples = numSamples32;
-    N = N16;
-    sampleRate = sampleRate32;
-    M = M16;
-
-    std::cout << "Glava datoteke:\n";
-    std::cout << "  Stevilo vzorcev: " << numSamples << "\n";
-    std::cout << "  N: " << N << "\n";
-    std::cout << "  Sample rate: " << sampleRate << " Hz\n";
-    std::cout << "  M: " << M << "\n\n";
-
-    int paddedSize = numSamples + 2 * N;
-    int numBlocks = (paddedSize - N) / N;
-
-    std::cout << "Pricakovano stevilo blokov na kanal: " << numBlocks << "\n\n";
-
-    BitReader reader(inFile);
-
-    std::cout << "Branje Mid blokov...\n";
-    midBlocks.clear();
-    for (int i = 0; i < numBlocks; ++i) {
-        midBlocks.push_back(readMDCTBlock(reader, N));
-        if ((i + 1) % 100 == 0) {
-            std::cout << "\rPrebrano: " << (i + 1) << "/" << numBlocks << " blokov" << std::flush;
-        }
-    }
-
-    std::cout << "\nBranje Side blokov...\n";
-    sideBlocks.clear();
-    for (int i = 0; i < numBlocks; ++i) {
-        sideBlocks.push_back(readMDCTBlock(reader, N));
-        if ((i + 1) % 100 == 0) {
-            std::cout << "\rPrebrano: " << (i + 1) << "/" << numBlocks << " blokov" << std::flush;
-        }
-    }
-
-    inFile.close();
-
-    std::cout << "\n\nBranje zakljuceno!\n";
-    std::cout << "Mid blokov: " << midBlocks.size() << "\n";
-    std::cout << "Side blokov: " << sideBlocks.size() << "\n\n";
-
-    return true;
-}
-
 
 struct MidSide {
     AudioFile<double> mid;
@@ -303,13 +232,11 @@ double w(int n, int N) {
 
 MidSide splitToMidAndSide(const AudioFile<double>& audio) {
     MidSide ms;
-
     if (audio.getNumChannels() != 2) {
         throw std::runtime_error("Audio ni stereo!");
     }
 
     int numSamplesPerChannel = audio.getNumSamplesPerChannel();
-
     ms.mid.setNumChannels(1);
     ms.side.setNumChannels(1);
     ms.mid.setNumSamplesPerChannel(numSamplesPerChannel);
@@ -320,19 +247,14 @@ MidSide splitToMidAndSide(const AudioFile<double>& audio) {
     for (int i = 0; i < numSamplesPerChannel; ++i) {
         double L = audio.samples[0][i];
         double R = audio.samples[1][i];
-
         ms.mid.samples[0][i] = (L + R) / 2.0;
         ms.side.samples[0][i] = (L - R) / 2.0;
     }
-
     return ms;
 }
 
 void buildBlocks(const std::vector<double>& signal, int N, std::vector<std::vector<double>>& blocks) {
     int blockSize = 2 * N;
-    int half = N;
-    int numSamples = signal.size();
-
     std::vector<double> paddedSignal;
     paddedSignal.insert(paddedSignal.end(), N, 0.0);
     paddedSignal.insert(paddedSignal.end(), signal.begin(), signal.end());
@@ -359,145 +281,427 @@ void applyWindow(std::vector<std::vector<double>>& blocks) {
     }
 }
 
-std::vector<double> MDCT(const std::vector<double>& block) {
-    int twoN = block.size();
+std::vector<double> MDCT(const std::vector<double>& x) {
+    int twoN = x.size();
     int N = twoN / 2;
-    std::vector<double> mdctBlock(N, 0.0);
+    std::vector<double> X(N, 0.0);
 
     for (int k = 0; k < N; ++k) {
         double sum = 0.0;
         for (int n = 0; n < twoN; ++n) {
-            sum += block[n] * std::cos(M_PI / N * (n + 0.5 + N / 2.0) * (k + 0.5));
+            sum += x[n] * std::cos(M_PI / N * (n + 0.5 + N / 2.0) * (k + 0.5));
         }
-        mdctBlock[k] = sum;
+        X[k] = sum;
     }
-
-    return mdctBlock;
+    return X;
 }
 
 std::vector<std::vector<double>> MDCTAllBlocks(const std::vector<std::vector<double>>& blocks) {
     std::vector<std::vector<double>> mdctBlocks;
     mdctBlocks.reserve(blocks.size());
-
     for (const auto& block : blocks) {
         mdctBlocks.push_back(MDCT(block));
     }
-
     return mdctBlocks;
 }
 
-void quantizeAndCompress(std::vector<std::vector<double>>& mdctBlocks, int M) {
+void quantizeAndCompress(std::vector<std::vector<double>>& mdctBlocks, int M,
+    std::vector<std::vector<int>>& intBlocks) {
+    intBlocks.clear();
+    intBlocks.reserve(mdctBlocks.size());
+
     for (auto& block : mdctBlocks) {
         int N = block.size();
+        std::vector<int> intBlock(N);
 
         for (int i = 0; i < N; ++i) {
-            block[i] = std::round(block[i]);
+            intBlock[i] = static_cast<int>(std::round(block[i]));
         }
 
         for (int i = N - M; i < N; ++i) {
-            block[i] = 0.0;
+            intBlock[i] = 0;
         }
+
+        intBlocks.push_back(intBlock);
     }
 }
 
-void compressAudio(const AudioFile<double>& audio, int M, int N) {
-    std::cout << "=== KOMPRESIJA ZVOKA ===\n";
+bool writeCompressedAudio(const std::string& filename,
+    const std::vector<std::vector<int>>& midBlocks,
+    const std::vector<std::vector<int>>& sideBlocks,
+    int numSamples, int N, int sampleRate, int M) {
+
+    std::ofstream outFile(filename, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Napaka: Ne morem odpreti datoteke za pisanje!\n";
+        return false;
+    }
+
+    std::cout << "\n=== ZAPIS V DATOTEKO ===\n";
+    std::cout << "Datoteka: " << filename << "\n";
+
+    uint32_t numSamples32 = static_cast<uint32_t>(numSamples);
+    uint16_t N16 = static_cast<uint16_t>(N);
+    uint32_t sampleRate32 = static_cast<uint32_t>(sampleRate);
+    uint16_t M16 = static_cast<uint16_t>(M);
+
+    outFile.write(reinterpret_cast<const char*>(&numSamples32), sizeof(uint32_t));
+    outFile.write(reinterpret_cast<const char*>(&N16), sizeof(uint16_t));
+    outFile.write(reinterpret_cast<const char*>(&sampleRate32), sizeof(uint32_t));
+    outFile.write(reinterpret_cast<const char*>(&M16), sizeof(uint16_t));
+
+    std::cout << "Glava datoteke:\n";
+    std::cout << "  Stevilo vzorcev: " << numSamples << "\n";
+    std::cout << "  N: " << N << "\n";
+    std::cout << "  Sample rate: " << sampleRate << " Hz\n";
+    std::cout << "  M: " << M << "\n\n";
+
+    BitWriter writer(outFile);
+    int totalBlocks = midBlocks.size() + sideBlocks.size();
+    int written = 0;
+
+    std::cout << "Pisanje Mid blokov...\n";
+    for (const auto& block : midBlocks) {
+        writeMDCTBlock(writer, block);
+        written++;
+        if (written % 100 == 0) {
+            std::cout << "\r  Zapisano: " << written << "/" << midBlocks.size() << std::flush;
+        }
+    }
+    std::cout << "\n";
+
+    std::cout << "Pisanje Side blokov...\n";
+    for (const auto& block : sideBlocks) {
+        writeMDCTBlock(writer, block);
+        written++;
+        if (written % 100 == 0) {
+            std::cout << "\r  Zapisano: " << (written - midBlocks.size())
+                << "/" << sideBlocks.size() << std::flush;
+        }
+    }
+    std::cout << "\n";
+
+    writer.flush();
+    outFile.close();
+
+    std::cout << "Zapis zakljucen!\n";
+    std::cout << "Skupaj blokov: " << totalBlocks << "\n\n";
+    return true;
+}
+
+bool compressAudio(const std::string& inputPath, const std::string& outputPath,
+    int M, int N, double& compressionTime) {
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    std::cout << "\n========================================\n";
+    std::cout << "    KOMPRESIJA ZVOKA\n";
+    std::cout << "========================================\n";
+    std::cout << "Vhodna datoteka: " << inputPath << "\n";
+    std::cout << "Izhodna datoteka: " << outputPath << "\n";
     std::cout << "N = " << N << ", M = " << M << "\n";
     std::cout << "Velikost bloka: " << 2 * N << "\n\n";
 
+    AudioFile<double> audio;
+    if (!audio.load(inputPath)) {
+        std::cerr << "Napaka: Ne morem naloziti audio datoteke!\n";
+        return false;
+    }
+
+    std::cout << "Audio datoteka nalozena:\n";
+    std::cout << "  Kanali: " << audio.getNumChannels() << "\n";
+    std::cout << "  Vzorci: " << audio.getNumSamplesPerChannel() << "\n";
+    std::cout << "  Sample rate: " << audio.getSampleRate() << " Hz\n";
+    std::cout << "  Trajanje: " << std::fixed << std::setprecision(2)
+        << (double)audio.getNumSamplesPerChannel() / audio.getSampleRate()
+        << " sekund\n\n";
+
+    std::cout << "1. Mid-Side razdelitev...\n";
     MidSide ms = splitToMidAndSide(audio);
 
-    // Procesiranje Mid kanala
-    std::vector<std::vector<double>> midBlocks;
+    std::cout << "2. Gradnja blokov...\n";
+    std::vector<std::vector<double>> midBlocks, sideBlocks;
     buildBlocks(ms.mid.samples[0], N, midBlocks);
-    std::cout << "Mid kanal: " << midBlocks.size() << " blokov\n";
-
-    applyWindow(midBlocks);
-    std::vector<std::vector<double>> midMDCT = MDCTAllBlocks(midBlocks);
-    quantizeAndCompress(midMDCT, M);
-
-    // Procesiranje Side kanala
-    std::vector<std::vector<double>> sideBlocks;
     buildBlocks(ms.side.samples[0], N, sideBlocks);
-    std::cout << "Side kanal: " << sideBlocks.size() << " blokov\n";
+    std::cout << "   Mid: " << midBlocks.size() << " blokov\n";
+    std::cout << "   Side: " << sideBlocks.size() << " blokov\n";
 
+    std::cout << "3. Aplikacija okenske funkcije...\n";
+    applyWindow(midBlocks);
     applyWindow(sideBlocks);
+
+    std::cout << "4. MDCT transformacija...\n";
+    std::vector<std::vector<double>> midMDCT = MDCTAllBlocks(midBlocks);
     std::vector<std::vector<double>> sideMDCT = MDCTAllBlocks(sideBlocks);
-    quantizeAndCompress(sideMDCT, M);
 
-    std::cout << "\nKompresija zakljucena!\n";
+    std::cout << "5. Kvantizacija in kompresija...\n";
+    std::vector<std::vector<int>> midInt, sideInt;
+    quantizeAndCompress(midMDCT, M, midInt);
+    quantizeAndCompress(sideMDCT, M, sideInt);
 
-    // TODO: Zapis v binarno datoteko
+    std::cout << "6. Zapis v datoteko...\n";
+    if (!writeCompressedAudio(outputPath, midInt, sideInt,
+        audio.getNumSamplesPerChannel(),
+        N, audio.getSampleRate(), M)) {
+        return false;
+    }
 
+    auto endTime = std::chrono::high_resolution_clock::now();
+    compressionTime = std::chrono::duration<double>(endTime - startTime).count();
+
+    std::cout << "========================================\n";
+    std::cout << "KOMPRESIJA USPESNA!\n";
+    std::cout << "Cas: " << std::fixed << std::setprecision(3)
+        << compressionTime << " sekund\n";
+    std::cout << "========================================\n\n";
+
+    return true;
 }
 
-void dekompresijaZvoka() {
-    std::cout << "Izbrali ste dekompresijo zvoka!\n";
+///////////////////////   DEKOMPRESIJA   /////////////////////////
+
+void combineMidSide(const std::vector<double>& mid, const std::vector<double>& side, AudioFile<double>& audio) {
+    int numSamples = mid.size();
+    audio.setNumChannels(2);
+    audio.setNumSamplesPerChannel(numSamples);
+
+    for (int i = 0; i < numSamples; ++i) {
+        audio.samples[0][i] = mid[i] + side[i];
+        audio.samples[1][i] = mid[i] - side[i];
+    }
 }
 
-void predvajajDekompresiranZvok() {
-    std::cout << "Izbrali ste predvajanje dekompresiranjega zvoka!\n";
+std::vector<double> IMDCT(const std::vector<int>& X) {
+    int N = X.size();
+    int twoN = 2 * N;
+    std::vector<double> y(twoN, 0.0);
+
+    for (int n = 0; n < twoN; ++n) {
+        double sum = 0.0;
+        for (int k = 0; k < N; ++k) {
+            sum += X[k] * std::cos(
+                M_PI / N * (n + 0.5 + N / 2.0) * (k + 0.5)
+            );
+        }
+        y[n] = sum;
+    }
+    return y;
+}
+
+std::vector<std::vector<double>> IMDCTAllBlocks(const std::vector<std::vector<int>>& mdctBlocks)
+{
+    std::vector<std::vector<double>> timeBlocks;
+    timeBlocks.reserve(mdctBlocks.size());
+
+    for (const auto& block : mdctBlocks) {
+        timeBlocks.push_back(IMDCT(block));
+    }
+
+    return timeBlocks;
+}
+
+void applyWindow1D(std::vector<double>& block) {
+    int N = block.size();
+    for (int n = 0; n < N; ++n) {
+        block[n] *= w(n, N);
+    }
+}
+
+std::vector<double> overlapAdd(const std::vector<std::vector<double>>& blocks, int N) {
+    int numBlocks = blocks.size();
+    int outSize = (numBlocks + 1) * N;
+    std::vector<double> output(outSize, 0.0);
+
+    for (int b = 0; b < numBlocks; ++b) {
+        for (int n = 0; n < 2 * N; ++n) {
+            output[b * N + n] += blocks[b][n];
+        }
+    }
+
+    output.erase(output.begin(), output.begin() + N);
+    output.resize(output.size() - N);
+
+    return output;
+}
+
+bool decompressAudio(const std::string& inputPath, const std::string& outputPath) {
+    std::ifstream inFile(inputPath, std::ios::binary);
+    if (!inFile) return false;
+
+    uint32_t numSamples;
+    uint16_t N;
+    uint32_t sampleRate;
+    uint16_t M;
+
+    inFile.read(reinterpret_cast<char*>(&numSamples), sizeof(uint32_t));
+    inFile.read(reinterpret_cast<char*>(&N), sizeof(uint16_t));
+    inFile.read(reinterpret_cast<char*>(&sampleRate), sizeof(uint32_t));
+    inFile.read(reinterpret_cast<char*>(&M), sizeof(uint16_t));
+
+    BitReader reader(inFile);
+
+    int paddedSize = numSamples + 2 * N;
+    int numBlocks = (paddedSize - N) / N;
+
+    auto readChannelBlocks = [&](int count) {
+        std::vector<std::vector<int>> blocks(count, std::vector<int>(N, 0));
+        for (int i = 0; i < count; ++i) {
+            for (int j = 0; j < (N - M); ++j) {
+                int bitLength = reader.readBits(6);
+                if (bitLength > 0) {
+                    uint32_t val = reader.readBits(bitLength);
+                    blocks[i][j] = decodeValue(val, bitLength);
+                }
+            }
+        }
+        return blocks;
+        };
+
+    std::cout << "Berem bloke...\n";
+    std::vector<std::vector<int>> midIntBlocks = readChannelBlocks(numBlocks);
+    std::vector<std::vector<int>> sideIntBlocks = readChannelBlocks(numBlocks);
+
+    auto processBlocks = [&](std::vector<std::vector<int>>& intBlocks) {
+        std::vector<std::vector<double>> timeBlocks;
+        for (const auto& b : intBlocks) {
+            std::vector<double> ib = IMDCT(b);
+            applyWindow1D(ib);
+            timeBlocks.push_back(ib);
+        }
+        return overlapAdd(timeBlocks, N);
+        };
+
+    std::cout << "Izvajam IMDCT in Overlap-Add...\n";
+    std::vector<double> midSignal = processBlocks(midIntBlocks);
+    std::vector<double> sideSignal = processBlocks(sideIntBlocks);
+
+    AudioFile<double> outputAudio;
+    outputAudio.setSampleRate(sampleRate);
+    combineMidSide(midSignal, sideSignal, outputAudio);
+
+    if (outputAudio.getNumSamplesPerChannel() > numSamples) {
+        outputAudio.setNumSamplesPerChannel(numSamples);
+    }
+
+    return outputAudio.save(outputPath);
 }
 
 int main() {
-    AudioFile<double> audio;
-
-    std::cout << "Nalagam test.wav...\n";
-    if (!audio.load("test.wav")) {
-        std::cout << "NAPAKA: Ne morem naloziti test.wav\n";
-        std::cout << "Program bo deloval v demo nacinu brez audio datoteke.\n\n";
-    }
-    else {
-        std::cout << "Audio datoteka nalozena uspesno!\n";
-        audio.printSummary();
-        std::cout << "\n";
-    }
+    std::cout << "========================================\n";
+    std::cout << "    MDCT KOMPRESIJA ZVOKA\n";
+    std::cout << "========================================\n\n";
 
     int userChoice = 0, M, N;
 
     while (true) {
-        std::cout << "\nIzberite nacin:\n\n"
+        std::cout << "\nIzbira:\n\n"
             << "1 - Kompresija zvoka\n"
-            << "2 - Izvedi dekompresijo\n"
-            << "3 - Predvajaj dekompresiran zvok\n"
+            << "2 - Dekompresija zvoka\n"
+            << "3 - Testiranje (vsi N in M)\n"
             << "0 - IZHOD\n\n"
-            << "Izbira: ";
+            << "Vnesite izbiro: ";
 
         std::cin >> userChoice;
 
         switch (userChoice) {
         case 1: {
-            if (audio.getNumChannels() == 0) {
-                std::cout << "NAPAKA: Audio datoteka ni nalozena!\n";
+            std::cout << "\n=== KOMPRESIJA ===\n";
+
+            std::string inputPath = openFileDialog(
+                "Izberite vhodno WAV datoteko",
+                "WAV Files\0*.wav\0All Files\0*.*\0"
+            );
+
+            if (inputPath.empty()) {
+                std::cout << "Izbira preklicana.\n";
                 break;
             }
 
-            std::cout << "\nIzberite velikost bloka N (64, 128, 256): ";
+            std::cout << "Izbrana vhodna datoteka: " << inputPath << "\n";
+
+            std::string outputPath = saveFileDialog(
+                "Shrani kompresirano datoteko",
+                "MDCT Files\0*.mdct\0All Files\0*.*\0",
+                "mdct"
+            );
+
+            if (outputPath.empty()) {
+                std::cout << "Izbira preklicana.\n";
+                break;
+            }
+
+            std::cout << "Izbrana izhodna datoteka: " << outputPath << "\n\n";
+
+            std::cout << "Vnesite N (64, 128, 256): ";
             std::cin >> N;
-            std::cout << "Izberite faktor stiskanja M (0-" << N << "): ";
+            std::cout << "Vnesite M (0 do " << N << "): ";
             std::cin >> M;
 
-            if (M > N) {
-                std::cout << "NAPAKA: M ne sme biti vecji od N!\n";
+            if (M > N || M < 0) {
+                std::cout << "Napaka: M mora biti med 0 in " << N << "!\n";
                 break;
             }
 
-            std::cout << "\n";
-            compressAudio(audio, M, N);
+            double compressionTime;
+            if (compressAudio(inputPath, outputPath, M, N, compressionTime)) {
+                std::ifstream inFile(inputPath, std::ios::binary | std::ios::ate);
+                std::ifstream outFile(outputPath, std::ios::binary | std::ios::ate);
+
+                if (inFile && outFile) {
+                    size_t inSize = inFile.tellg();
+                    size_t outSize = outFile.tellg();
+                    double ratio = (double)inSize / outSize;
+
+                    std::cout << "\n--- STATISTIKA ---\n";
+                    std::cout << "Originalna velikost: " << inSize << " B\n";
+                    std::cout << "Kompresirana velikost: " << outSize << " B\n";
+                    std::cout << "Kompresijsko razmerje: " << std::fixed
+                        << std::setprecision(2) << ratio << ":1\n";
+                    std::cout << "Prihranek: " << std::fixed << std::setprecision(1)
+                        << (1.0 - (double)outSize / inSize) * 100 << "%\n";
+                }
+            }
             break;
         }
+
         case 2: {
-            dekompresijaZvoka();
+            std::string inputPath = openFileDialog("Izberite .mdct datoteko", "MDCT Files\0*.mdct\0");
+            if (inputPath.empty()) break;
+
+            std::string outputPath = saveFileDialog("Shrani kot WAV", "WAV Files\0*.wav\0", "wav");
+            if (outputPath.empty()) break;
+
+            if (decompressAudio(inputPath, outputPath)) {
+                std::cout << "Dekompresija uspešna: " << outputPath << "\n";
+            }
+            else {
+                std::cout << "Napaka pri dekompresiji!\n";
+            }
             break;
         }
+
         case 3: {
-            predvajajDekompresiranZvok();
+            std::vector<int> N_vals = { 64, 128, 256 };
+            std::vector<int> M_vals = { 0, 32, 60 };
+            std::string testFile = openFileDialog("Izberi WAV za test", "WAV Files\0*.wav\0");
+
+            std::cout << "N\tM\tRatio\tTime(s)\n";
+            for (int n : N_vals) {
+                for (int m : M_vals) {
+                    if (m >= n) continue;
+                    double cTime;
+                    std::string outName = "test_N" + std::to_string(n) + "_M" + std::to_string(m) + ".mdct";
+                    compressAudio(testFile, outName, m, n, cTime);
+                }
+            }
             break;
         }
+
         case 0: {
             std::cout << "\nIzhod iz programa.\n";
             return 0;
         }
+
         default:
             std::cout << "Neveljavna izbira!\n";
         }
