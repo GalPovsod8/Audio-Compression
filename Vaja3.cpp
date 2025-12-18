@@ -3,6 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
+#include <fstream>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -144,6 +145,7 @@ void compressAudio(const AudioFile<double>& audio, int M, int N) {
     std::cout << "\nKompresija zakljucena!\n";
 
     // TODO: Zapis v binarno datoteko
+
 }
 
 void dekompresijaZvoka() {
