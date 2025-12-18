@@ -2,6 +2,7 @@
 #include "AudioFile.h"
 #include <vector>
 #include <cmath>
+#include <iomanip>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -90,6 +91,17 @@ std::vector<double> MDCT(const std::vector<double>& block) {
     return mdctBlock;
 }
 
+std::vector<std::vector<double>> MDCTAllBlocks(const std::vector<std::vector<double>>& blocks) {
+    std::vector<std::vector<double>> mdctBlocks;
+    mdctBlocks.reserve(blocks.size());
+
+    for (const auto& block : blocks) {
+        mdctBlocks.push_back(MDCT(block));
+    }
+
+    return mdctBlocks;
+}
+
 void quantizeAndCompress(std::vector<std::vector<double>>& mdctBlocks, int M) {
     for (auto& block : mdctBlocks) {
         int N = block.size();
@@ -102,17 +114,6 @@ void quantizeAndCompress(std::vector<std::vector<double>>& mdctBlocks, int M) {
             block[i] = 0.0;
         }
     }
-}
-
-std::vector<std::vector<double>> MDCTAllBlocks(const std::vector<std::vector<double>>& blocks) {
-    std::vector<std::vector<double>> mdctBlocks;
-    mdctBlocks.reserve(blocks.size());
-
-    for (const auto& block : blocks) {
-        mdctBlocks.push_back(MDCT(block));
-    }
-
-    return mdctBlocks;
 }
 
 void compressAudio(const AudioFile<double>& audio, int M, int N) {
@@ -156,7 +157,6 @@ void predvajajDekompresiranZvok() {
 int main() {
     AudioFile<double> audio;
 
-    // Najprej naloži audio datoteko
     std::cout << "Nalagam test.wav...\n";
     if (!audio.load("test.wav")) {
         std::cout << "NAPAKA: Ne morem naloziti test.wav\n";
